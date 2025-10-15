@@ -1,5 +1,7 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 /* eslint-disable jsx-a11y/control-has-associated-label */
+/* eslint no-console: ["error", { allow: ["warn", "log"] }] */
+
 import React, { useEffect, useState, useRef } from 'react';
 import cn from 'classnames';
 import { UserWarning } from './UserWarning';
@@ -17,12 +19,13 @@ export const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [showError, setShowError] = useState(false);
   const [loadingIds, setLoadingIds] = useState<number[]>([]);
+
+  console.log('LoadingIds', loadingIds);
+
   const [isAdding, setIsAdding] = useState(false);
 
   const countActive = todos.filter(todo => todo.completed === false).length;
-  const completedTodoIds = todos
-    .filter(todo => todo.completed === true)
-    .map(todo => todo.id);
+  const completedTodos = todos.filter(todo => todo.completed === true);
   const newTodoInput = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -88,27 +91,32 @@ export const App: React.FC = () => {
       });
   };
 
-  const clearCompleted = () => {
+  const clearCompleted = async () => {
     const promises: Promise<number>[] = [];
 
-    completedTodoIds.forEach(id => {
-      promises.push(deleteTodo(id));
-      setLoadingIds(current => [...current, id]);
+    completedTodos.forEach(todo => {
+      promises.push(deleteTodo(todo.id));
+      setLoadingIds(current => [...current, todo.id]);
     });
 
-    setErrorMessage('');
-    Promise.all(promises)
-      .then(() => {
-        setTodos(todos.filter(todo => !todo.completed));
-        setVisibleTodos(todos.filter(todo => !todo.completed));
-      })
-      .catch(() => {
-        setErrorMessage('Unable to delete a todo');
-        setShowError(true);
-      })
-      .finally(() => {
-        setLoadingIds([]);
-      });
+    const results = await Promise.allSettled(promises);
+
+    const hasError = results.some(result => result.status === 'rejected');
+
+    if (hasError) {
+      setErrorMessage('Unable to delete a todo');
+      setShowError(true);
+    }
+
+    const successfulIds = completedTodos
+      .filter((_, i) => results[i].status === 'fulfilled')
+      .map(todo => todo.id);
+
+    setTodos(prev => prev.filter(todo => !successfulIds.includes(todo.id)));
+    setVisibleTodos(prev =>
+      prev.filter(todo => !successfulIds.includes(todo.id)),
+    );
+    setLoadingIds([]);
   };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>): void => {
@@ -148,7 +156,6 @@ export const App: React.FC = () => {
       .finally(() => {
         setTempTodo(null);
         setIsAdding(false);
-        // setTimeout(() => newTodoInput.current?.focus(), 0);
       });
   };
 
@@ -163,11 +170,13 @@ export const App: React.FC = () => {
       <div className="todoapp__content">
         <header className="todoapp__header">
           {/* this button should have `active` class only if all todos are completed */}
-          <button
-            type="button"
-            className="todoapp__toggle-all active"
-            data-cy="ToggleAllButton"
-          />
+          {todos.length > 0 && (
+            <button
+              type="button"
+              className="todoapp__toggle-all active"
+              data-cy="ToggleAllButton"
+            />
+          )}
 
           {/* Add a todo on form submit */}
           <form method="POST" onSubmit={handleSubmit}>
@@ -292,7 +301,7 @@ export const App: React.FC = () => {
               type="button"
               className="todoapp__clear-completed"
               data-cy="ClearCompletedButton"
-              disabled={completedTodoIds.length === 0}
+              disabled={completedTodos.length === 0}
               onClick={clearCompleted}
             >
               Clear completed
